@@ -18,12 +18,15 @@ import numpy as np
 import numpy.typing as npt
 
 from tplab.stats.distributions import (
+    check_alpha,
     standard_normal_expected_shortfall,
     standard_normal_quantile,
 )
 
 __all__ = [
     "MIN_OBSERVATIONS",
+    "MIN_TAIL_OBSERVATIONS",
+    "HistoricalSimulation",
     "ParametricNormal",
     "RiskForecast",
     "RiskModel",
@@ -31,6 +34,9 @@ __all__ = [
 
 #: Fewer observations than this and a volatility estimate is not worth having.
 MIN_OBSERVATIONS = 30
+
+#: Fewest observations an empirical tail average may be taken over.
+MIN_TAIL_OBSERVATIONS = 2
 
 
 @dataclass(frozen=True)
@@ -168,3 +174,78 @@ class ParametricNormal:
             f"ParametricNormal(mean={self.mean!r}, sigma={self._sigma:.6f}, "
             f"n={self._n_observations})"
         )
+
+
+class HistoricalSimulation:
+    r"""VaR and Expected Shortfall read directly off the observed returns.
+
+    No distribution is assumed. VaR is the empirical :math:`\alpha`-quantile of
+    the window; ES is the mean of the observations strictly below it.
+
+    The appeal is that whatever skew and fat tails the history contains are kept
+    exactly as they occurred. The cost is that every forecast is a statement
+    about days already seen: the estimate cannot reach past the worst observation
+    in the window, and it moves in steps as extreme days enter and leave it.
+
+    Interpolation between order statistics uses ``numpy``'s default linear
+    method. With 250 observations at :math:`\alpha = 0.01` the quantile falls
+    between the second and third worst returns, so the choice is not cosmetic.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> returns = np.arange(-50, 50) / 1000.0
+    >>> forecast = HistoricalSimulation().fit(returns).forecast(alpha=0.05)
+    >>> f"{forecast.value_at_risk:.5f}", f"{forecast.expected_shortfall:.5f}"
+    ('0.04505', '0.04800')
+    """
+
+    def __init__(self) -> None:
+        self._window: npt.NDArray[np.float64] | None = None
+
+    def fit(self, returns: npt.ArrayLike) -> Self:
+        """Store the window. There is nothing to estimate."""
+        self._window = _clean(returns)
+        return self
+
+    def forecast(self, alpha: float) -> RiskForecast:
+        """One-period-ahead VaR and ES from the empirical distribution.
+
+        Raises ``RuntimeError`` if unfitted, and ``ValueError`` if ``alpha`` is
+        invalid or the window is too short to populate the tail.
+        """
+        if self._window is None:
+            raise RuntimeError("model is not fitted; call fit(returns) first")
+        check_alpha(alpha)
+
+        quantile = float(np.quantile(self._window, alpha))
+        tail = self._window[self._window < quantile]
+
+        if tail.size < MIN_TAIL_OBSERVATIONS:
+            n = self._window.size
+            raise ValueError(
+                f"only {tail.size} observation(s) fall below the empirical "
+                f"{alpha:.3%} quantile of a {n}-observation window, and an average "
+                f"over fewer than {MIN_TAIL_OBSERVATIONS} is not an estimate. "
+                f"A window holds roughly n*alpha = {n * alpha:.2f} tail observations; "
+                f"lengthen the window or raise alpha. Estimating beyond what the "
+                f"sample contains is what extreme value theory is for."
+            )
+
+        return RiskForecast(
+            alpha=alpha,
+            value_at_risk=-quantile,
+            expected_shortfall=-float(tail.mean()),
+        )
+
+    @property
+    def n_observations(self) -> int:
+        """Number of finite observations in the window."""
+        if self._window is None:
+            raise RuntimeError("model is not fitted; call fit(returns) first")
+        return int(self._window.size)
+
+    def __repr__(self) -> str:
+        if self._window is None:
+            return "HistoricalSimulation(unfitted)"
+        return f"HistoricalSimulation(n={self._window.size})"

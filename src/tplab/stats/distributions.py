@@ -26,6 +26,7 @@ from scipy import stats
 __all__ = [
     "MAX_ALPHA",
     "MIN_ALPHA",
+    "check_alpha",
     "standard_normal_expected_shortfall",
     "standard_normal_quantile",
 ]
@@ -36,7 +37,13 @@ MIN_ALPHA = 0.0
 MAX_ALPHA = 0.5
 
 
-def _check_alpha(alpha: float) -> None:
+def check_alpha(alpha: float) -> None:
+    """Reject anything that is not a usable loss-tail probability.
+
+    Public because the convention is shared: estimators that do not route
+    through a quantile function still have to enforce it, and one message for
+    one mistake is worth more than a private helper.
+    """
     if not MIN_ALPHA < alpha < MAX_ALPHA:
         raise ValueError(
             f"alpha must be a tail probability in ({MIN_ALPHA}, {MAX_ALPHA}), got {alpha}. "
@@ -58,7 +65,7 @@ def standard_normal_quantile(alpha: float) -> float:
     >>> round(standard_normal_quantile(0.01), 4)
     -2.3263
     """
-    _check_alpha(alpha)
+    check_alpha(alpha)
     return float(stats.norm.ppf(alpha))
 
 
@@ -84,6 +91,6 @@ def standard_normal_expected_shortfall(alpha: float) -> float:
     >>> round(standard_normal_expected_shortfall(0.01), 4)
     -2.6652
     """
-    _check_alpha(alpha)
+    check_alpha(alpha)
     x_alpha = stats.norm.ppf(alpha)
     return float(-stats.norm.pdf(x_alpha) / alpha)

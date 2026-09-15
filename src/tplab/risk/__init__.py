@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from tplab.risk.estimators import (
     MIN_OBSERVATIONS,
+    MIN_TAIL_OBSERVATIONS,
+    HistoricalSimulation,
     ParametricNormal,
     RiskForecast,
     RiskModel,
@@ -15,6 +17,8 @@ from tplab.risk.estimators import (
 
 __all__ = [
     "MIN_OBSERVATIONS",
+    "MIN_TAIL_OBSERVATIONS",
+    "HistoricalSimulation",
     "ParametricNormal",
     "RiskForecast",
     "RiskModel",
